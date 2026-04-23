@@ -4,13 +4,9 @@ import { id } from 'date-fns/locale';
 import {
     CheckCircle2,
     Download,
-    Eye,
-    MoreHorizontal,
-    PackagePlus,
-    Pencil,
+    Eraser,
     RotateCcw,
     Search,
-    TrashIcon,
     XCircle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -18,21 +14,6 @@ import type { DateRange } from 'react-day-picker';
 import { toast } from 'sonner';
 import DateRangePicker from '@/components/date-range-picker';
 import { Button } from '@/components/ui/button';
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import {
     Pagination,
@@ -51,21 +32,8 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { destroy, edit, show as orderShow } from '@/routes/orders';
-import {
-    exportMethod as shipmentExport,
-    index as shipmentsIndex,
-    show as shipmentShow,
-} from '@/routes/shipments';
-import shipmentOrders from '@/routes/shipments/orders';
-
-type Shipment = {
-    id: number;
-    code: string;
-    status: string;
-    shipped_at: string | null;
-    arrived_at: string | null;
-};
+import { rahasia } from '@/routes';
+import { destroyAllSoftDeleted, exportMethod } from '@/routes/rahasia';
 
 type OrderRow = {
     id: number;
@@ -73,6 +41,7 @@ type OrderRow = {
     recipient_name: string;
     note: string | null;
     created_at: string;
+    deleted_at: string | null;
     has_image: boolean | number;
 };
 
@@ -89,17 +58,8 @@ type OrdersPaginator = {
     to: number | null;
 };
 
-type User = {
-    id: number;
-    name: string;
-    email: string;
-    role: 'main_admin' | 'input_admin';
-};
-
-type ShipmentShowPageProps = {
-    shipment: Shipment;
+type OrdersPageProps = {
     orders: OrdersPaginator;
-    user: User | null;
 };
 
 type OrderFilters = {
@@ -134,11 +94,7 @@ function formatDateInput(date: Date | undefined): string {
     return `${year}-${month}-${day}`;
 }
 
-function formatDateTime(value: string | null): string {
-    if (!value) {
-        return '-';
-    }
-
+function formatDateTime(value: string): string {
     const parsedDate = parseISO(value);
     const date = isValid(parsedDate) ? parsedDate : new Date(value);
 
@@ -187,18 +143,6 @@ function buildOrdersQuery(
     }
 
     return query;
-}
-
-function buildShipmentShowUrl(
-    shipmentId: number,
-    query: Record<string, string | number>,
-): string {
-    const baseUrl = shipmentShow({ shipment: shipmentId }).url;
-    const queryString = new URLSearchParams(
-        Object.entries(query).map(([key, value]) => [key, String(value)]),
-    ).toString();
-
-    return queryString === '' ? baseUrl : `${baseUrl}?${queryString}`;
 }
 
 function getVisiblePages(
@@ -315,15 +259,11 @@ function OrdersFilters({
     );
 }
 
-export default function ShipmentShow() {
-    const page = usePage<ShipmentShowPageProps>();
-    const { shipment, orders, user } = page.props;
+export default function OrdersIndex() {
+    const page = usePage<OrdersPageProps>();
+    const { orders } = page.props;
     const currentFilters = getFiltersFromUrl(page.url);
-    const [selectedOrder, setSelectedOrder] = useState<OrderRow | null>(null);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const isMainAdmin = user?.role === 'main_admin';
-    const canAddPacket = isMainAdmin || shipment.status === 'pending';
-    const showAddPacketButton = shipment.status === 'pending' || isMainAdmin;
+    const [isClearing, setIsClearing] = useState(false);
     const visiblePages = useMemo(
         () => getVisiblePages(orders.current_page, orders.last_page),
         [orders.current_page, orders.last_page],
@@ -331,7 +271,9 @@ export default function ShipmentShow() {
 
     const submitFilters = (filters: OrderFilters) => {
         router.visit(
-            buildShipmentShowUrl(shipment.id, buildOrdersQuery(filters)),
+            rahasia.url({
+                query: buildOrdersQuery(filters),
+            }),
             {
                 method: 'get',
                 preserveScroll: true,
@@ -342,7 +284,7 @@ export default function ShipmentShow() {
     };
 
     const resetFilters = () => {
-        router.visit(shipmentShow({ shipment: shipment.id }).url, {
+        router.visit(rahasia().url, {
             method: 'get',
             preserveScroll: true,
             preserveState: true,
@@ -360,10 +302,9 @@ export default function ShipmentShow() {
         }
 
         router.visit(
-            buildShipmentShowUrl(
-                shipment.id,
-                buildOrdersQuery(currentFilters, pageNumber),
-            ),
+            rahasia.url({
+                query: buildOrdersQuery(currentFilters, pageNumber),
+            }),
             {
                 method: 'get',
                 preserveScroll: true,
@@ -372,149 +313,95 @@ export default function ShipmentShow() {
         );
     };
 
-    const handleShowOrder = (orderId: number) => {
-        router.visit(orderShow({ order: orderId }).url);
-    };
-
-    const handleEditOrder = (orderId: number) => {
-        router.visit(edit({ order: orderId }).url);
-    };
-
-    const handleDeleteOrder = () => {
-        if (!selectedOrder) {
-            return;
-        }
-
-        setIsDeleting(true);
-
-        router.delete(destroy({ order: selectedOrder.id }).url, {
-            preserveScroll: true,
-            preserveState: true,
-            onFinish: () => {
-                setIsDeleting(false);
-            },
-            onSuccess: () => {
-                setSelectedOrder(null);
-                toast.success('Order berhasil dihapus', {
-                    position: 'top-right',
-                    style: {
-                        borderRadius: '8px',
-                        background: '#ffffff',
-                        color: '#1f2937',
-                        border: '1px solid #4ade80',
-                    },
-                });
-            },
-            onError: () => {
-                toast.error('Gagal menghapus order', {
-                    position: 'top-right',
-                    style: {
-                        borderRadius: '8px',
-                        background: '#ffffff',
-                        color: '#1f2937',
-                        border: '1px solid #f87171',
-                    },
-                });
-            },
+    const handleExport = () => {
+        window.location.href = exportMethod.url({
+            query: buildOrdersQuery(currentFilters),
         });
     };
 
-    const getShipmentStatusInIndonesian = (status: string) => {
-        switch (status) {
-            case 'pending':
-                return 'Menunggu';
-            case 'shipped':
-                return 'Dikirim';
-            case 'delivered':
-                return 'Terkirim';
-            default:
-                return status;
+    const handleClearData = () => {
+        if (isClearing) {
+            return;
         }
+
+        const isConfirmed = window.confirm(
+            'Yakin ingin membersihkan semua data order yang sudah dihapus? Tindakan ini permanen.',
+        );
+
+        if (!isConfirmed) {
+            return;
+        }
+
+        setIsClearing(true);
+
+        router.delete(
+            destroyAllSoftDeleted.url({
+                query: buildOrdersQuery(currentFilters),
+            }),
+            {
+                preserveScroll: true,
+                preserveState: false,
+                onFinish: () => {
+                    setIsClearing(false);
+                },
+                onSuccess: () => {
+                    toast.success('Data order terhapus berhasil dibersihkan', {
+                        position: 'top-right',
+                        style: {
+                            borderRadius: '8px',
+                            background: '#ffffff',
+                            color: '#1f2937',
+                            border: '1px solid #4ade80',
+                        },
+                    });
+                },
+                onError: () => {
+                    toast.error('Gagal membersihkan data', {
+                        position: 'top-right',
+                        style: {
+                            borderRadius: '8px',
+                            background: '#ffffff',
+                            color: '#1f2937',
+                            border: '1px solid #f87171',
+                        },
+                    });
+                },
+            },
+        );
     };
 
     return (
         <>
-            <Head title={`Detail Pengiriman ${shipment.code}`} />
+            <Head title="Daftar Order" />
 
             <div className="space-y-6 p-4">
-                <div className="darK:bg-slate-800 space-y-4 rounded-xl border border-slate-300/80 bg-slate-300 p-4 shadow-sm dark:bg-slate-900">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div>
-                            <p className="text-xs font-semibold tracking-[0.12em] text-slate-500 uppercase dark:text-slate-400">
-                                Detail Pengiriman
-                            </p>
-                            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                                {shipment.code}
-                            </h2>
-                            <p className="text-sm text-muted-foreground">
-                                Status:{' '}
-                                {getShipmentStatusInIndonesian(shipment.status)}
-                            </p>
-                        </div>
-
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                            {showAddPacketButton && (
-                                <Button
-                                    type="button"
-                                    onClick={() =>
-                                        router.visit(
-                                            shipmentOrders.create({
-                                                shipment: shipment.id,
-                                            }).url,
-                                        )
-                                    }
-                                    className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                                    disabled={!canAddPacket}
-                                >
-                                    <PackagePlus className="size-4" />
-                                    Tambah Paket
-                                </Button>
-                            )}
-
-                            {isMainAdmin && (
-                                <>
-                                    <Button
-                                        asChild
-                                        variant="outline"
-                                        className="border-0 bg-orange-400/90 text-white hover:bg-orange-500 hover:text-white"
-                                    >
-                                        <a
-                                            href={
-                                                shipmentExport({
-                                                    shipment: shipment.id,
-                                                }).url
-                                            }
-                                        >
-                                            <Download className="size-4" />
-                                            Export Excel
-                                        </a>
-                                    </Button>
-
-                                    <Button
-                                        type="button"
-                                        onClick={() =>
-                                            router.visit(
-                                                shipmentShow({
-                                                    shipment: shipment.id,
-                                                }).url + '/edit',
-                                            )
-                                        }
-                                        className="bg-blue-600 text-white shadow-sm hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
-                                    >
-                                        <Pencil className="size-4" />
-                                        Edit
-                                    </Button>
-                                </>
-                            )}
-                        </div>
-                    </div>
-
+                <div className="relative space-y-5">
                     <OrdersFilters
                         key={page.url}
                         initialFilters={currentFilters}
                         onApply={submitFilters}
                         onReset={resetFilters}
                     />
+
+                    <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                            type="button"
+                            onClick={handleExport}
+                            className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                        >
+                            <Download className="size-4" />
+                            Export Excel
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="destructive"
+                            onClick={handleClearData}
+                            disabled={isClearing}
+                        >
+                            <Eraser className="size-4" />
+                            {isClearing ? 'Membersihkan...' : 'Bersihkan Data'}
+                        </Button>
+                    </div>
                 </div>
 
                 <section className="overflow-hidden rounded-2xl border border-slate-300/90 bg-slate-50 dark:border-slate-400/45 dark:bg-slate-950/45">
@@ -539,9 +426,12 @@ export default function ShipmentShow() {
                                 <TableHead className="h-12 px-6 text-xs font-semibold tracking-[0.14em] text-slate-900 uppercase dark:text-slate-50">
                                     Dibuat pada
                                 </TableHead>
-                                <TableHead className="h-12 px-6 text-right text-xs font-semibold tracking-[0.14em] text-slate-900 uppercase dark:text-slate-50">
-                                    Aksi
+                                <TableHead className="h-12 px-6 text-xs font-semibold tracking-[0.14em] text-slate-900 uppercase dark:text-slate-50">
+                                    Dihapus pada
                                 </TableHead>
+                                {/* <TableHead className="h-12 px-6 text-right text-xs font-semibold tracking-[0.14em] text-slate-900 uppercase dark:text-slate-50">
+                                    Aksi
+                                </TableHead> */}
                             </TableRow>
                         </TableHeader>
 
@@ -552,7 +442,8 @@ export default function ShipmentShow() {
                                         colSpan={7}
                                         className="py-14 text-center text-slate-700/80 dark:text-slate-200/80"
                                     >
-                                        Belum ada order pada shipment ini.
+                                        Tidak ada paket yang cocok dengan filter
+                                        saat ini.
                                     </TableCell>
                                 </TableRow>
                             ) : (
@@ -598,62 +489,12 @@ export default function ShipmentShow() {
                                                     order.created_at,
                                                 )}
                                             </TableCell>
-                                            <TableCell className="px-6 py-2.5 text-right">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger
-                                                        asChild
-                                                    >
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            aria-label="Aksi order"
-                                                            className="text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                                                        >
-                                                            <MoreHorizontal className="size-4" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <DropdownMenuLabel>
-                                                            Aksi
-                                                        </DropdownMenuLabel>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem
-                                                            onClick={() =>
-                                                                handleShowOrder(
-                                                                    order.id,
-                                                                )
-                                                            }
-                                                        >
-                                                            <Eye className="size-4" />
-                                                            Lihat
-                                                        </DropdownMenuItem>
-                                                        {isMainAdmin && (
-                                                            <>
-                                                                <DropdownMenuItem
-                                                                    onClick={() =>
-                                                                        handleEditOrder(
-                                                                            order.id,
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    <Pencil className="size-4" />
-                                                                    Ubah
-                                                                </DropdownMenuItem>
-                                                                <DropdownMenuItem
-                                                                    variant="destructive"
-                                                                    onClick={() =>
-                                                                        setSelectedOrder(
-                                                                            order,
-                                                                        )
-                                                                    }
-                                                                >
-                                                                    <TrashIcon className="size-4" />
-                                                                    Hapus
-                                                                </DropdownMenuItem>
-                                                            </>
-                                                        )}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                            <TableCell className="px-6 py-2.5 text-slate-800 dark:text-slate-100/90">
+                                                {order.deleted_at
+                                                    ? formatDateTime(
+                                                          order.deleted_at,
+                                                      )
+                                                    : '-'}
                                             </TableCell>
                                         </TableRow>
                                     );
@@ -746,54 +587,15 @@ export default function ShipmentShow() {
                     </div>
                 </section>
             </div>
-
-            <Dialog
-                open={selectedOrder !== null}
-                onOpenChange={(open) => {
-                    if (!open && !isDeleting) {
-                        setSelectedOrder(null);
-                    }
-                }}
-            >
-                <DialogContent>
-                    <DialogTitle>Konfirmasi Hapus Order</DialogTitle>
-                    <DialogDescription>
-                        {selectedOrder
-                            ? `Anda yakin ingin menghapus order ${selectedOrder.resi}? Tindakan ini tidak dapat dibatalkan.`
-                            : 'Pilih order yang ingin dihapus.'}
-                    </DialogDescription>
-
-                    <DialogFooter>
-                        <Button
-                            variant="secondary"
-                            onClick={() => setSelectedOrder(null)}
-                            disabled={isDeleting}
-                        >
-                            Batal
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            onClick={handleDeleteOrder}
-                            disabled={isDeleting || selectedOrder === null}
-                        >
-                            {isDeleting ? 'Menghapus...' : 'Hapus'}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </>
     );
 }
 
-ShipmentShow.layout = {
+OrdersIndex.layout = {
     breadcrumbs: [
         {
-            title: 'Pengiriman',
-            href: shipmentsIndex(),
-        },
-        {
-            title: 'Detail Pengiriman',
-            href: '#',
+            title: 'Paket',
+            href: rahasia(),
         },
     ],
 };

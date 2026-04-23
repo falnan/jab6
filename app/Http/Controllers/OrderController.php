@@ -8,11 +8,104 @@ use App\Models\Order;
 use App\Models\Sender;
 use App\Models\Shipment;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class OrderController extends Controller
 {
+    private const DASHBOARD_CACHE_KEY = 'dashboard:orders:summary:v2';
+
+    public function dashboard()
+    {
+        return Inertia::render('dashboard', [
+            'dashboard' => $this->dashboardSummary(),
+        ]);
+    }
+
+    public function refreshDashboardCache(): void
+    {
+        Cache::put(
+            self::DASHBOARD_CACHE_KEY,
+            $this->buildDashboardSummary(),
+            $this->dashboardCacheExpiresAt(),
+        );
+    }
+
+    private function dashboardSummary(): array
+    {
+        return Cache::remember(
+            self::DASHBOARD_CACHE_KEY,
+            $this->dashboardCacheExpiresAt(),
+            fn() => $this->buildDashboardSummary(),
+        );
+    }
+
+    private function dashboardCacheExpiresAt(): CarbonInterface
+    {
+        $nowInJakarta = now('Asia/Jakarta');
+        $expiresAt = $nowInJakarta->copy()->setTime(23, 59, 0);
+
+        if ($nowInJakarta->greaterThanOrEqualTo($expiresAt)) {
+            $expiresAt->addDay();
+        }
+
+        return $expiresAt;
+    }
+
+    private function buildDashboardSummary(): array
+    {
+        $latestShipment = Shipment::query()
+            ->select(['id', 'code'])
+            ->latest('id')
+            ->first();
+
+        $latestShipmentPackageTotal = 0;
+
+        if ($latestShipment !== null) {
+            $latestShipmentPackageTotal = Order::query()
+                ->where('shipment_id', $latestShipment->id)
+                ->count();
+        }
+
+        $completedShipmentTotal = Shipment::query()
+            ->whereIn('status', ['shipped', 'arrived'])
+            ->count();
+
+        $endDate = now('Asia/Jakarta')->startOfDay();
+        $startDate = $endDate->copy()->subDays(6);
+
+        $dailyPackageCounts = Order::query()
+            ->selectRaw('DATE(created_at) as order_date, COUNT(*) as total')
+            ->whereBetween('created_at', [
+                $startDate->copy()->startOfDay()->utc(),
+                $endDate->copy()->endOfDay()->utc(),
+            ])
+            ->groupByRaw('DATE(created_at)')
+            ->pluck('total', 'order_date');
+
+        $packagesByDay = [];
+
+        for ($day = $startDate->copy(); $day->lte($endDate); $day = $day->addDay()) {
+            $dateKey = $day->format('Y-m-d');
+
+            $packagesByDay[] = [
+                'date' => $dateKey,
+                'label' => $day->format('d M'),
+                'total' => (int) ($dailyPackageCounts[$dateKey] ?? 0),
+            ];
+        }
+
+        return [
+            'latest_shipment_code' => $latestShipment?->code,
+            'latest_shipment_package_total' => $latestShipmentPackageTotal,
+            'completed_shipment_total' => $completedShipmentTotal,
+            'packages_last_7_days' => $packagesByDay,
+        ];
+    }
+
     public function index(Request $request)
     {
         $orders = Order::select(['id', 'resi', 'recipient_name', 'note', 'created_at'])
@@ -33,13 +126,15 @@ class OrderController extends Controller
                     : Carbon::now('Asia/Jakarta')->endOfDay();
 
                 // jika hanya salah satu diisi, tetap fleksibel
-                if ($request->filled('date_from') && !$request->filled('date_to')) {
+                if ($request->filled('date_from') && ! $request->filled('date_to')) {
                     $q->where('created_at', '>=', $from->utc());
+
                     return;
                 }
 
-                if (!$request->filled('date_from') && $request->filled('date_to')) {
+                if (! $request->filled('date_from') && $request->filled('date_to')) {
                     $q->where('created_at', '<=', $to->utc());
+
                     return;
                 }
 
@@ -84,7 +179,7 @@ class OrderController extends Controller
         return Inertia::render('orders/edit', [
             'order' => $order,
             'senders' => Sender::query()->select(['id', 'code', 'name'])->orderBy('name')->get(),
-            //hanya kirim shipments dengan status pending atau shipped
+            // hanya kirim shipments dengan status pending atau shipped
             'shipments' => Shipment::query()->select(['id', 'code'])->whereIn('status', ['pending', 'shipped'])->orderByDesc('created_at')->get(),
         ]);
     }
@@ -99,7 +194,11 @@ class OrderController extends Controller
         $imagePath = $order->image_path;
 
         if ($request->hasFile('image')) {
-            $imagePath = $request->file('image')->store('orders/images', 'public');
+            $file = $request->file('image');
+            $safeResi = Str::slug($validated['resi']);
+            $extension = $file->getClientOriginalExtension();
+            $fileName = $safeResi . '.' . $extension;
+            $imagePath = $file->storeAs('orders/images', $fileName, 'public');
         }
 
         $order->update([
@@ -120,6 +219,7 @@ class OrderController extends Controller
     public function destroy(Order $order)
     {
         $order->delete();
+
         return redirect()->route('orders.index')->with('success', 'Order deleted successfully.');
     }
 }

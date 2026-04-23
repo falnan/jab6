@@ -92,6 +92,8 @@ export default function ShipmentOrder({
     const [compressedImageSize, setCompressedImageSize] = useState<
         number | null
     >(null);
+    const formRef = useRef(form);
+    formRef.current = form;
     const scannerRef = useRef<{
         stop: () => Promise<void>;
         clear: () => void;
@@ -134,12 +136,13 @@ export default function ShipmentOrder({
             selectedFile: File,
             selectedCompressionMode: CompressionMode,
         ) => {
+            const currentForm = formRef.current;
             const selectedCompressionLimit =
                 COMPRESSION_LIMITS[selectedCompressionMode];
 
             if (selectedCompressionLimit === null) {
-                form.clearErrors('image');
-                form.setData('image', selectedFile);
+                currentForm.clearErrors('image');
+                currentForm.setData('image', selectedFile);
                 setCompressedImageSize(selectedFile.size);
                 setPreviewFromFile(selectedFile);
 
@@ -158,8 +161,8 @@ export default function ShipmentOrder({
                 });
 
                 if (compressedFile.size > selectedCompressionLimit) {
-                    form.setData('image', null);
-                    form.setError(
+                    currentForm.setData('image', null);
+                    currentForm.setError(
                         'image',
                         `Ukuran hasil kompres melebihi ${formatFileSize(selectedCompressionLimit)}.`,
                     );
@@ -170,8 +173,8 @@ export default function ShipmentOrder({
                     return;
                 }
 
-                form.clearErrors('image');
-                form.setData('image', compressedFile);
+                currentForm.clearErrors('image');
+                currentForm.setData('image', compressedFile);
                 setCompressedImageSize(compressedFile.size);
                 setPreviewFromFile(compressedFile);
 
@@ -179,8 +182,8 @@ export default function ShipmentOrder({
                     position: 'top-right',
                 });
             } catch {
-                form.setData('image', null);
-                form.setError(
+                currentForm.setData('image', null);
+                currentForm.setError(
                     'image',
                     'Gagal memproses gambar. Silakan coba lagi.',
                 );
@@ -189,7 +192,7 @@ export default function ShipmentOrder({
                 setIsCompressingImage(false);
             }
         },
-        [form, setPreviewFromFile],
+        [setPreviewFromFile],
     );
 
     const handleImageChange = async (event: ChangeEvent<HTMLInputElement>) => {

@@ -12,6 +12,8 @@ use App\Models\Shipment;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -68,13 +70,15 @@ class ShipmentController extends Controller
                     : Carbon::now('Asia/Jakarta')->endOfDay();
 
                 // jika hanya salah satu diisi, tetap fleksibel
-                if ($request->filled('date_from') && !$request->filled('date_to')) {
+                if ($request->filled('date_from') && ! $request->filled('date_to')) {
                     $q->where('created_at', '>=', $from->utc());
+
                     return;
                 }
 
-                if (!$request->filled('date_from') && $request->filled('date_to')) {
+                if (! $request->filled('date_from') && $request->filled('date_to')) {
                     $q->where('created_at', '<=', $to->utc());
+
                     return;
                 }
 
@@ -96,6 +100,12 @@ class ShipmentController extends Controller
      */
     public function createOrder(Request $request, Shipment $shipment)
     {
+        if ($shipment->status !== 'pending') {
+            if (Auth::user()->role !== 'main_admin') {
+                abort(403);
+            }
+        }
+
         return Inertia::render('shipments/shipmentordercreate', [
             'shipment' => $shipment->only(['id', 'code', 'status']),
             'senders' => Sender::query()
@@ -111,13 +121,23 @@ class ShipmentController extends Controller
      */
     public function storeOrder(StoreOrderRequest $request, Shipment $shipment)
     {
+        if ($shipment->status !== 'pending') {
+            if (Auth::user()->role !== 'main_admin') {
+                abort(403);
+            }
+        }
+
         $validated = $request->validated();
 
         $user = $request->user();
         $imagePath = null;
 
         if ($request->hasFile('image')) {
-            $imagePath = $request->file('image')->store('orders/images', 'public');
+            $file = $request->file('image');
+            $safeResi = Str::slug($validated['resi']);
+            $extension = $file->getClientOriginalExtension();
+            $fileName = $safeResi.'.'.$extension;
+            $imagePath = $file->storeAs('orders/images', $fileName, 'public');
         }
 
         Order::create([
@@ -178,6 +198,15 @@ class ShipmentController extends Controller
      */
     public function destroy(Shipment $shipment)
     {
+        $orders = $shipment->orders()->select(['id', 'image_path'])->get();
+
+        foreach ($orders as $order) {
+            if ($order->image_path) {
+                Storage::disk('public')->delete($order->image_path);
+            }
+        }
+
+        $shipment->orders()->delete();
         $shipment->delete();
 
         return redirect()->route('shipments.index')->with('success', 'Shipment deleted successfully.');

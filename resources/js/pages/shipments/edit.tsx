@@ -8,13 +8,23 @@ import {
     ClockIcon,
     Save,
     ShipIcon,
+    Trash2,
     XIcon,
 } from 'lucide-react';
 import type { FormEvent } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -31,6 +41,7 @@ import {
 } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import {
+    destroy as shipmentDestroy,
     index as shipmentsIndex,
     show as shipmentShow,
     update as shipmentUpdate,
@@ -98,6 +109,9 @@ function formatDateLabel(dateValue?: string | null): string {
 }
 
 export default function EditShipment({ shipment }: EditShipmentPageProps) {
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
     const form = useForm<EditShipmentForm>({
         code: shipment.code,
         status: shipment.status,
@@ -115,6 +129,37 @@ export default function EditShipment({ shipment }: EditShipmentPageProps) {
     const handleDateClear = (field: 'shipped_at' | 'arrived_at') => {
         form.setData(field, null);
         form.clearErrors(field);
+    };
+
+    const handleDelete = () => {
+        setIsDeleting(true);
+
+        router.delete(shipmentDestroy({ shipment: shipment.id }).url, {
+            onSuccess: () => {
+                toast.success('Shipment berhasil dihapus', {
+                    position: 'top-right',
+                    style: {
+                        borderRadius: '8px',
+                        background: '#ffffff',
+                        color: '#1f2937',
+                        border: '1px solid #4ade80',
+                    },
+                });
+            },
+            onError: () => {
+                setIsDeleting(false);
+                setConfirmDeleteOpen(false);
+                toast.error('Gagal menghapus shipment', {
+                    position: 'top-right',
+                    style: {
+                        borderRadius: '8px',
+                        background: '#ffffff',
+                        color: '#1f2937',
+                        border: '1px solid #f87171',
+                    },
+                });
+            },
+        });
     };
 
     const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -342,33 +387,86 @@ export default function EditShipment({ shipment }: EditShipmentPageProps) {
                     </section>
 
                     <section className="rounded-xl px-6 py-4">
-                        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
                             <Button
                                 type="button"
-                                variant="secondary"
-                                onClick={handleBack}
-                                disabled={form.processing}
+                                variant="destructive"
+                                onClick={() => setConfirmDeleteOpen(true)}
+                                disabled={form.processing || isDeleting}
+                                className="bg-red-600 text-white shadow-sm hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600"
                             >
-                                <ArrowLeft className="size-4" />
-                                Kembali
+                                <Trash2 className="size-4" />
+                                Hapus Shipment
                             </Button>
-                            <Button
-                                type="submit"
-                                disabled={form.processing}
-                                className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                            >
-                                {form.processing ? (
-                                    <Spinner className="size-4" />
-                                ) : (
-                                    <Save className="size-4" />
-                                )}
-                                {form.processing
-                                    ? 'Menyimpan...'
-                                    : 'Simpan Perubahan'}
-                            </Button>
+
+                            <div className="flex flex-col-reverse gap-3 sm:flex-row">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={handleBack}
+                                    disabled={form.processing || isDeleting}
+                                >
+                                    <ArrowLeft className="size-4" />
+                                    Kembali
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={form.processing || isDeleting}
+                                    className="bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                                >
+                                    {form.processing ? (
+                                        <Spinner className="size-4" />
+                                    ) : (
+                                        <Save className="size-4" />
+                                    )}
+                                    {form.processing
+                                        ? 'Menyimpan...'
+                                        : 'Simpan Perubahan'}
+                                </Button>
+                            </div>
                         </div>
                     </section>
                 </form>
+
+                <Dialog
+                    open={confirmDeleteOpen}
+                    onOpenChange={setConfirmDeleteOpen}
+                >
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Hapus Shipment</DialogTitle>
+                            <DialogDescription>
+                                Apakah Anda yakin ingin menghapus shipment{' '}
+                                <strong>{shipment.code}</strong>? Seluruh order
+                                dan gambar yang terkait akan ikut terhapus.
+                                Tindakan ini tidak dapat dibatalkan.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className="gap-2">
+                            <Button
+                                type="button"
+                                variant="secondary"
+                                onClick={() => setConfirmDeleteOpen(false)}
+                                disabled={isDeleting}
+                            >
+                                Batal
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={handleDelete}
+                                disabled={isDeleting}
+                                className="bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600"
+                            >
+                                {isDeleting ? (
+                                    <Spinner className="size-4" />
+                                ) : (
+                                    <Trash2 className="size-4" />
+                                )}
+                                {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </div>
         </>
     );
