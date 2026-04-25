@@ -1,5 +1,7 @@
 {
-    "agents": ["copilot"],
+    "agents": [
+        "copilot"
+    ],
     "guidelines": true,
     "mcp": true,
     "nightwatch_mcp": false,
@@ -8,6 +10,7 @@
         "fortify-development",
         "laravel-best-practices",
         "wayfinder-development",
+        "pest-testing",
         "inertia-react-development",
         "tailwindcss-development"
     ]
