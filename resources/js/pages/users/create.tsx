@@ -86,6 +86,12 @@ export default function CreateUser() {
                             </h2>
                         </div>
 
+                        {form.errors.limit && (
+                            <div className="mx-6 mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+                                {form.errors.limit}
+                            </div>
+                        )}
+
                         <div className="grid gap-6 p-6 md:grid-cols-2">
                             <div className="grid gap-2 md:col-span-2">
                                 <Label htmlFor="name">

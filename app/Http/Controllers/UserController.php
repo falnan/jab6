@@ -6,15 +6,16 @@ use App\Http\Requests\Users\StoreUserRequest;
 use App\Http\Requests\Users\UpdateUserRequest;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
 class UserController extends Controller
 {
-
     public function index()
     {
-        $users = User::select('id', 'name', 'email', 'role', 'is_active')
+        $users = User::where('id', '!=', 1)
+            ->select('id', 'name', 'email', 'role', 'is_active')
             ->latest()
             ->paginate(10);
 
@@ -30,6 +31,12 @@ class UserController extends Controller
 
     public function store(StoreUserRequest $request)
     {
+        if (User::count() >= 5) {
+            throw ValidationException::withMessages([
+                'limit' => 'Batas maksimum 4 admin telah tercapai. Hapus admin yang ada sebelum menambah yang baru.',
+            ]);
+        }
+
         $data = $request->validated();
         User::create($data);
 
